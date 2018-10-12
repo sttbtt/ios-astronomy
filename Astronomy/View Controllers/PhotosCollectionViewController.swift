@@ -10,6 +10,10 @@ import UIKit
 
 class PhotosCollectionViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     
+    var imageCache: Cache<Int, UIImage> = Cache()
+    var fetchCache: Cache<Int, PhotoFetchOperation> = Cache()
+    var photoFetchQueue: OperationQueue = OperationQueue()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -64,9 +68,42 @@ class PhotosCollectionViewController: UIViewController, UICollectionViewDataSour
     
     private func loadImage(forCell cell: ImageCollectionViewCell, forItemAt indexPath: IndexPath) {
         
-        // let photoReference = photoReferences[indexPath.item]
+        let photoReference = photoReferences[indexPath.item]
         
         // TODO: Implement image loading here
+        if let image = imageCache.retrieve(photoReference.id) {
+            cell.imageView.image = image
+            return
+        }
+        
+        let imageOperation = PhotoFetchOperation(photoReference)
+        fetchCache.store(photoReference.id, imageOperation)
+        
+        let cacheOperation = BlockOperation {
+            if let image = imageOperation.image {
+                self.imageCache.store(photoReference.id, image)
+            }
+        }
+        
+        let completeOperation = BlockOperation{
+            DispatchQueue.main.async {
+                if self.collectionView.indexPath(for: cell) == indexPath {
+                    cell.imageView.image = imageOperation.image
+                }
+            }
+        }
+        
+        completeOperation.addDependency(imageOperation)
+        cacheOperation.addDependency(imageOperation)
+        
+        photoFetchQueue.addOperations([imageOperation, completeOperation, cacheOperation], waitUntilFinished: false)
+        
+        
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        let reference = photoReferences[indexPath.item]
+        fetchCache.retrieve(reference.id)?.cancel()
     }
     
     // Properties
